@@ -96,19 +96,38 @@ def run_fa_em(x, A, Ψ, max_iter=10000, conv_eps=1e-4):
     mu = (1/n) * x.sum(axis=0)
     x = x - mu
 
+    elbo_iter = 0
+    elbo = 2 * conv_eps
+
     iteration = 0
-    while iteration < max_iter:
+    while iteration < max_iter and abs(elbo_iter - elbo) > conv_eps:
+        print(f'iteration: {iteration}')
         mu_q, Σ_q = fa_E_step(x, A, Ψ)
 
         # ELBO(Q, theta) <= LL(x,theta) with equality when q_i = p(z_i | x_i; theta)
         # ELBO(Q, theta) = Sum_i=1^n E_{z_i ~ q_i} [log p(x_i, z_i; theta) - log q_i(z_i)]
         # [z,x] ~ N([0, mu], [[I, A^T], [A, AA^T + Ψ]])
         # We will sample from E_{z_i ~ q_i} to estimate
-
+        elbo = fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q)
+        print(f'ELBO after E-step: {elbo}')
 
 
         A, Ψ = fa_M_step(mu_q, Σ_q)
 
+        elbo = fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q)
+        print(f'ELBO after M-step: {elbo}')
 
 
 
+def main(x):
+    k = 2
+    d = x.shape[1]
+    A = np.random.rand(d, k)
+
+    Ψ = np.zeros((d,d))
+    np.fill_diagonal(Ψ, np.random.random(d))
+
+    run_fa_em(x, A, Ψ, max_iter=10)
+
+
+if __name__ == '__main__':
