@@ -1,5 +1,5 @@
 import numpy as np
-import scipy.stats as stats
+from scipy.stats import multivariate_normal
 
 n=5
 d=3
@@ -56,10 +56,40 @@ def fa_M_step(mu_q, Σ_q, x):
 
     return A, Ψ
 
+
 def Q(mu_q, Σ_q, size=None):
     return np.random.multivariate_normal(mu_q, Σ_q, size=size)
 
-def fa_ELBO_estimate(x, A, Ψ, n_samples):
+
+def fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q, n_samples=100):
+    # We generate the base multivariate normal distribution of (z,x)
+    k, d = mu_q.shape[1], x.shape[1]
+    joint_mean = np.zeros(k+d)
+    joint_cov = np.concatenate(
+        [
+            np.concatenate([np.eye(k),  A.T],       axis=1),
+            np.concatenate([A,          A@A.T + Ψ], axis=1)
+        ]
+        , axis=0
+    )
+    joint_rv = multivariate_normal(joint_mean, joint_cov)
+
+    # list of distributions q_i(z_i)
+    Q = [multivariate_normal(mu, Σ_q) for mu in mu_q]  # (n,)
+
+    # (n, n_samples, k)
+    sampled_z = np.stack([q_i.rvs(size=n_samples) for q_i in Q])
+
+    tiled_x = np.expand_dims(x, axis=-2)  # (n,d) -> (n,1,d)
+    tiled_x = np.tile(tiled_x, (1, n_samples, 1))  # (n,1,d) -> (n, n_samples, d)
+
+    joint_samples = np.concatenate([sampled_z, tiled_x], axis=-1)  # (n, n_samples, k+d)
+    # this is log of p(z_i, x_i; A, Ψ)
+    joint_log_probs = np.log(joint_rv.pdf(joint_samples))  # pdf is applied on last dimension
+
+    q_log_probs = np.log(np.stack([q_i.pdf(z_i_samples) for q_i, z_i_samples in zip(Q, sampled_z)]))
+
+    return np.sum(joint_log_probs - q_log_probs) / n_samples
 
 
 def run_fa_em(x, A, Ψ, max_iter=10000, conv_eps=1e-4):
