@@ -3,8 +3,9 @@ import os
 import numpy as np
 from scipy.stats import multivariate_normal
 import pathlib
+from tqdm import tqdm
 
-from parsing import ii2
+from ddata.parsing import ii2
 
 
 # n=5
@@ -98,20 +99,32 @@ def Q(mu_q, Σ_q, size=None):
 # def epsilon_test(x, A, Ψ, mu_q, Σ_q):
 
 def epsilon_test_classify(f_plus, f_minus):
+    # U bend
     if f_plus * f_minus > 0:
-        if f_plus
+        if f_plus > 0:
+            return 0  # U
+        return 1  # upside down U
+    # slope
+    elif f_plus * f_minus < 0:
+        if f_plus - f_minus > 0:
+            return 2  # /
+        return 3  # \
+    else:
+        return 4 # unknown! At least one is 0.
 
 def epsilon_test(my_var, f, eps=1e-3):
+    output = np.zeros(my_var.shape)
     delta_var = np.zeros(my_var.shape)
     it = np.nditer(my_var, flags=['multi_index'])
-    for _ in it:
+    for _ in tqdm(it):
         index = it.multi_index
         delta_var[index] += eps
         f_plus = f(my_var + delta_var)
         f_minus = f(my_var - delta_var)
         delta_var[index] = 0.
+        output[index] = epsilon_test_classify(f_plus, f_minus)
 
-
+    return output
 
 def fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q, n_samples=100):
     # We generate the base multivariate normal distribution of (z,x)
@@ -202,8 +215,7 @@ def main(x, outs_dir=None):
 
     run_fa_em(x, A, Ψ, max_iter=100, outs_dir=outs_dir)
 
-
+x = ii2.drop(labels='subject', axis=1).to_numpy()
 if __name__ == '__main__':
     np.random.seed(42)
-    x = ii2.drop(labels='subject', axis=1).to_numpy()
     main(x, outs_dir=pathlib.Path('outputs'))  # drop the subj column
