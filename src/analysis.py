@@ -49,9 +49,10 @@ factors = factors[['question'] + [f'fa_obli{i}' for i in [0,1,2]] + [f'fa_FA{i}'
 
 import sys
 sys.path.append('src')
-from ddata.em import epsilon_test, fa_ELBO_estimate, fa_E_step, x
+from ddata.em import epsilon_test, fa_ELBO_delta_estimate, fa_E_step, x, sample_z_from_q
 from functools import partial
 A, Ψ = As[8], Ψs[8]
 mu_q, Σ_q = fa_E_step(x, A, Ψ)
-f = lambda A: fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q)
+sampled_z = sample_z_from_q(mu_q, Σ_q, n_samples=100)
+f = lambda A: fa_ELBO_delta_estimate(x, A, Ψ, sampled_z)
 out = epsilon_test(A, f)

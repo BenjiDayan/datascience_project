@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import os
 import numpy as np
+import math
 from scipy.stats import multivariate_normal
 import pathlib
 from tqdm import tqdm
@@ -113,10 +114,11 @@ def epsilon_test_classify(f_plus, f_minus):
         return 4 # unknown! At least one is 0.
 
 def epsilon_test(my_var, f, eps=1e-3):
-    output = np.zeros(my_var.shape)
-    delta_var = np.zeros(my_var.shape)
+    shape = my_var.shape
+    output = np.zeros(shape)
+    delta_var = np.zeros(shape)
     it = np.nditer(my_var, flags=['multi_index'])
-    for _ in tqdm(it):
+    for _ in tqdm(it, total=math.prod(shape)):
         index = it.multi_index
         delta_var[index] += eps
         f_plus = f(my_var + delta_var)
@@ -125,6 +127,30 @@ def epsilon_test(my_var, f, eps=1e-3):
         output[index] = epsilon_test_classify(f_plus, f_minus)
 
     return output
+
+def sample_z_from_q(mu_q, Σ_q, n_samples=100):
+    # list of distributions q_i(z_i)
+    Q = [multivariate_normal(mu, Σ_q) for mu in mu_q]  # (n,)
+
+    # (n, n_samples, k)
+    sampled_z = np.stack([q_i.rvs(size=n_samples) for q_i in Q])
+    return sampled_z
+
+def fa_ELBO_delta_estimate(x, A, Ψ, sampled_z):
+    n_samples = sampled_z.shape[1]
+    n = x.shape[0]
+
+    tiled_x = np.expand_dims(x, axis=-2)  # (n,d) -> (n,1,d)
+    tiled_x = np.tile(tiled_x, (1, n_samples, 1))  # (n,1,d) -> (n, n_samples, d)
+
+    joint_samples = np.concatenate([sampled_z, tiled_x], axis=-1)  # (n, n_samples, k+d)
+
+    cond = (tiled_x - sampled_z @ A.T)
+    out = (
+        + np.log(np.linalg.det(Ψ))
+        + np.squeeze(np.expand_dims(cond, axis=2) @ np.linalg.inv(Ψ) @ np.expand_dims(cond, axis=3))
+    ).sum() / (- n * n_samples)
+    return out
 
 def fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q, n_samples=100):
     # We generate the base multivariate normal distribution of (z,x)
