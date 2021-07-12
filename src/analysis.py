@@ -8,20 +8,25 @@ import pandas as pd
 from ddata.parsing import ii2
 import sys
 sys.path.append('src')
-from ddata.em import epsilon_test, fa_ELBO_delta_estimate, fa_E_step, x, sample_z_from_q
+from ddata.em import epsilon_test, fa_ELBO_delta_estimate, fa_ELBO_delta_estimate_better, \
+    fa_E_step, x, sample_z_from_q
 from functools import partial
 
 outdir = pathlib.Path('outputs')
 elbos = np.load(outdir / 'elbo.npy')
 
-def get_fns(path):
+def get_fns(path, regex='iter(\d*)_E.npy'):
     fns = os.listdir(path)
-    fns = [x for x in fns if re.match('iter(\d*).npy', x)]
-    fns.sort(key=lambda x: int(re.findall('iter(\d*).npy', x)[0]))
+    fns = [x for x in fns if re.match(regex, x)]
+    fns.sort(key=lambda x: int(re.findall(regex, x)[0]))
     return fns
 
-As = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A')])
-Ψs = np.array([np.load(outdir / 'Psi' / fn) for fn in get_fns(outdir / 'Psi')])
+As_E = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A')])
+Ψs_E = np.array([np.load(outdir / 'Psi' / fn) for fn in get_fns(outdir / 'Psi')])
+As_M = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A', regex='iter('
+                                                                                  '\d*)_M.npy')])
+Ψs_M = np.array([np.load(outdir / 'Psi' / fn) for fn in get_fns(outdir / 'Psi', regex='iter('
+                                                                                      '\d*)_M.npy')])
 
 # np.save(outdir / 'A' / 'all', As)
 # np.save(outdir / 'Psi' / 'all', Ψs)
@@ -54,15 +59,19 @@ def compare():
     # We find this ordering makes the factors seem comparable (though maybe some scaling?)
 
 
-def do_test_on_A(A, Ψ):
-    """epsilon tests wrt A's params."""
-    mu_q, Σ_q = fa_E_step(x, A, Ψ)
-    sampled_z = sample_z_from_q(mu_q, Σ_q, n_samples=100)
-    Ψ_inv = np.linalg.inv(Ψ)
-    f = lambda A: fa_ELBO_delta_estimate(x, A, Ψ_inv, sampled_z)
-    out = epsilon_test(A, f)
-    return out
-
+A, Ψ = As_M[10], Ψs_M[10]
 if __name__ == '__main__':
-    A, Ψ = As[8], Ψs[8]
-    do_test_on_A(A, Ψ)
+    def do_test_on_A(A, Ψ):
+        """epsilon tests wrt A's params."""
+        mu_q, Σ_q = fa_E_step(x, A, Ψ)
+        sampled_z = sample_z_from_q(mu_q, Σ_q, n_samples=n_samples)
+        elbo = fa_ELBO_delta_estimate_better(x, A, Ψ, sampled_z)
+        f1 = lambda A: fa_ELBO_delta_estimate_better(x, A, Ψ, sampled_z) - elbo
+        out1 = epsilon_test(A, f1)
+        f2 = lambda Ψ: fa_ELBO_delta_estimate_better(x, A, Ψ, sampled_z) - elbo
+        indices = [(i,i) for i in range(Ψ.shape[0])]
+        out2 = epsilon_test(Ψ, f2, indices=indices)
+        return out1, out2
+    outputs = []
+    outputs.append(test(As_E[10], Ψs_E[10], 15))
+    outputs.append(test(As_M[10], Ψs_M[10], 15))
