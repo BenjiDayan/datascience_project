@@ -5,6 +5,7 @@ import math
 from scipy.stats import multivariate_normal
 import pathlib
 from tqdm import tqdm
+from itertools import islice
 
 from ddata.parsing import ii2
 
@@ -113,12 +114,13 @@ def epsilon_test_classify(f_plus, f_minus):
     else:
         return 4 # unknown! At least one is 0.
 
+@profile
 def epsilon_test(my_var, f, eps=1e-3):
     shape = my_var.shape
     output = np.zeros(shape)
     delta_var = np.zeros(shape)
     it = np.nditer(my_var, flags=['multi_index'])
-    for _ in tqdm(it, total=math.prod(shape)):
+    for _ in tqdm(islice(it, 0, 1), total=math.prod(shape)):
         index = it.multi_index
         delta_var[index] += eps
         f_plus = f(my_var + delta_var)
@@ -136,7 +138,10 @@ def sample_z_from_q(mu_q, Σ_q, n_samples=100):
     sampled_z = np.stack([q_i.rvs(size=n_samples) for q_i in Q])
     return sampled_z
 
-def fa_ELBO_delta_estimate(x, A, Ψ, sampled_z):
+
+@profile
+def fa_ELBO_delta_estimate(x, A, Psi_inv, sampled_z):
+    """Estimate of fa_ELBO using a pre-sampled z."""
     n_samples = sampled_z.shape[1]
     n = x.shape[0]
 
@@ -145,14 +150,23 @@ def fa_ELBO_delta_estimate(x, A, Ψ, sampled_z):
 
     joint_samples = np.concatenate([sampled_z, tiled_x], axis=-1)  # (n, n_samples, k+d)
 
+    print(Psi_inv[0, 0])
+    print(Psi_inv[10,15])
+    print(Psi_inv[5,5])
+
+
     cond = (tiled_x - sampled_z @ A.T)
+    cond1 = np.expand_dims(cond, axis=2)
+    cond2 = np.expand_dims(cond, axis=3)
+    term = cond1 @ Psi_inv @ cond2
     out = (
-        + np.log(np.linalg.det(Ψ))
-        + np.squeeze(np.expand_dims(cond, axis=2) @ np.linalg.inv(Ψ) @ np.expand_dims(cond, axis=3))
+        + np.log(1/np.linalg.det(Psi_inv))
+        + np.squeeze(term)
     ).sum() / (- n * n_samples)
     return out
 
 def fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q, n_samples=100):
+    """Estimate ELBO by randomly sampling over z distribution"""
     # We generate the base multivariate normal distribution of (z,x)
     k, d = mu_q.shape[1], x.shape[1]
     joint_mean = np.zeros(k+d)
