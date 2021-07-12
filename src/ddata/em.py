@@ -113,27 +113,36 @@ def epsilon_test_classify(f_plus, f_minus):
     else:
         return 4 # unknown! At least one is 0.
 
-def epsilon_test(my_var, f, eps=1e-3):
+def epsilon_test(my_var, f, eps=1e-3, indices=None):
     shape = my_var.shape
     output = np.zeros(shape)
     delta_var = np.zeros(shape)
-    it = np.nditer(my_var, flags=['multi_index'])
-    for _ in tqdm(it, total=math.prod(shape)):
-        index = it.multi_index
+    if indices is None:
+        it = np.nditer(my_var, flags=['multi_index'])
+        iterator = tqdm((it.multi_index for _ in it),
+                        total=math.prod(shape))
+    else:
+        iterator = tqdm(indices)
+    for index in iterator:
         delta_var[index] += eps
-        f_plus = f(my_var + delta_var)
-        f_minus = f(my_var - delta_var)
+        f_plus, f_minus, classification = epsilon_test_plus_minus(f, my_var, delta_var)
         delta_var[index] = 0.
-        output[index] = epsilon_test_classify(f_plus, f_minus)
+        output[index] = classification
 
     return output
+
+def epsilon_test_plus_minus(f, my_var, delta_var):
+    f_plus = f(my_var + delta_var)
+    f_minus = f(my_var - delta_var)
+    return f_plus, f_minus, epsilon_test_classify(f_plus, f_minus)
 
 def sample_z_from_q(mu_q, Σ_q, n_samples=100):
     # list of distributions q_i(z_i)
     Q = [multivariate_normal(mu, Σ_q) for mu in mu_q]  # (n,)
+    k = Σ_q.shape[0]
 
     # (n, n_samples, k)
-    sampled_z = np.stack([q_i.rvs(size=n_samples) for q_i in Q])
+    sampled_z = np.stack([q_i.rvs(size=n_samples).reshape(-1, k) for q_i in Q])
     return sampled_z
 
 def fa_ELBO_delta_estimate(x, A, Ψ, sampled_z):
@@ -149,6 +158,23 @@ def fa_ELBO_delta_estimate(x, A, Ψ, sampled_z):
     out = (
         + np.log(np.linalg.det(Ψ))
         + np.squeeze(np.expand_dims(cond, axis=2) @ np.linalg.inv(Ψ) @ np.expand_dims(cond, axis=3))
+    ).sum() / (- n * n_samples)
+    return out
+
+def fa_ELBO_delta_estimate_better(x, A, Ψ, sampled_z):
+    n_samples = sampled_z.shape[1]
+    n = x.shape[0]
+
+    tiled_x = np.expand_dims(x, axis=-2)  # (n,d) -> (n,1,d)
+    tiled_x = np.tile(tiled_x, (1, n_samples, 1))  # (n,1,d) -> (n, n_samples, d)
+
+    joint_samples = np.concatenate([sampled_z, tiled_x], axis=-1)  # (n, n_samples, k+d)
+
+    cond = (tiled_x - sampled_z @ A.T)
+    a1,a2 = np.expand_dims(cond, axis=2), np.expand_dims(cond, axis=3)
+    out = (
+        + np.log(np.linalg.det(Ψ))
+        + np.squeeze((a1 * np.diag(np.linalg.inv(Ψ))) @ a2)
     ).sum() / (- n * n_samples)
     return out
 
@@ -207,8 +233,7 @@ def run_fa_em(x, A, Ψ, max_iter=10000, conv_eps=1e-4, outs_dir=None):
         # We will sample from E_{z_i ~ q_i} to estimate
         elbo = fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q)
         print(f'ELBO after E-step: {elbo}')
-        elbos.append(elbo)
-        np.save(outs_dir / 'elbo', elbos)
+        elbos.append([elbo])
 
         elbo_diff = elbo - elbo_iter
         if abs(elbo_diff) < conv_eps:
@@ -216,9 +241,11 @@ def run_fa_em(x, A, Ψ, max_iter=10000, conv_eps=1e-4, outs_dir=None):
             break
         print(f'elbo - elbo_prev: {elbo_diff}')
         print(f'|A-A_prev|: {np.linalg.norm(A-A_prev)}; |Ψ-Ψ_prev|: {np.linalg.norm(Ψ-Ψ_prev)}')
+
         if outs_dir is not None:
-            np.save(outs_dir / 'A' / f'iter{iteration}', A)
-            np.save(outs_dir / 'Psi' / f'iter{iteration}', Ψ)
+            np.save(outs_dir / 'A' / f'iter{iteration}_E', A)
+            np.save(outs_dir / 'Psi' / f'iter{iteration}_E', Ψ)
+            np.save(outs_dir / 'elbo', elbos)
 
         elbo_iter = elbo
 
@@ -227,6 +254,11 @@ def run_fa_em(x, A, Ψ, max_iter=10000, conv_eps=1e-4, outs_dir=None):
 
         elbo = fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q)
         print(f'ELBO after M-step: {elbo}')
+        elbos[-1].append(elbo)
+        if outs_dir is not None:
+            np.save(outs_dir / 'A' / f'iter{iteration}_M', A)
+            np.save(outs_dir / 'Psi' / f'iter{iteration}_M', Ψ)
+            np.save(outs_dir / 'elbo', elbos)
         iteration += 1
 
 
