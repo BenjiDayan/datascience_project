@@ -67,25 +67,35 @@ def fa_E_step(x, A, Ψ):
 
     return mu_q, Σ_q
 
-def fa_M_step(mu_q, Σ_q, x):
+def fa_M_step(µ_q, Σ_q, x):
+    """
+
+    :param µ_q: (n,k)
+    :param Σ_q: (k,k)
+    :param x: (n,d)
+    :return: A, Ψ: (d,k), (d,d) optimized to maximize ELBO(Q; A,Ψ)
+    """
     n, d = x.shape
 
-    # A = (Sum_i x_i mu_q.T ) @ (Sum_i mu_q @ mu_q.T + Σ_q)^{-1}
+    # A = (Sum_i x_i mu_q.T ) @ (Sum_i µ_q @ µ_q.T + Σ_q)^{-1}
     # This is (d,k) @ (k,k) = (d,k) as required
     # (:, d) (:, k) @  ( (:, k) (:, k) + (k, k) )^{-1}
-    A = np.tensordot(x, mu_q, ([0], [0])) @ np.linalg.inv(np.tensordot(mu_q, mu_q, ([0], [0])) + Σ_q)
+    A = np.tensordot(x, µ_q, ([0], [0])) @ np.linalg.inv(np.tensordot(µ_q, µ_q, ([0], [0])) + n*Σ_q)
 
-    # Φ = (1/n) Sum_i=1^n x_i x_i^T - x_i mu_q^T A^T - A mu_q x_i^T + A (mu_q mu_q^T + Σ_q) A^T
-    # tensored = np.tensordot(x, mu_q @ A.T, ([0], [0]))  # x_i mu_q^T A^T
+    # Φ = (1/n) Sum_i=1^n x_i x_i^T - x_i mu_q^T A^T - A µ_q x_i^T + A (µ_q µ_q^T + Σ_q) A^T
+    # tensored = np.tensordot(x, µ_q @ A.T, ([0], [0]))  # x_i mu_q^T A^T
     # Φ = (1/n) * (
     #     np.tensordot(x, x, ([0], [0])) +
     #     (-tensored - tensored.T) +
-    #     A @ (np.tensordot(mu_q, mu_q, ([0], [0])) + n*Σ_q) @ A.T
+    #     A @ (np.tensordot(µ_q, µ_q, ([0], [0])) + n*Σ_q) @ A.T
     # )
+
+    # we simplify the expression above via the formula A = (Sum x_i E[z_i|x_i]) (Sum_i E[z_i z_i^T|x_i]).
+    # i.e. A (µ_q µ_q^T + Σ_q) A^T = (Sum x_i E[z_i|x_i]) A^T
 
     Φ = (1/n) * (
         np.tensordot(x, x, ([0], [0])) -
-        A @ np.tensordot(mu_q, x, ([0], [0]))
+        A @ np.tensordot(µ_q, x, ([0], [0]))
     )
 
     # We extract a diagonal matrix from this by dropping off diagonal elements to 0
@@ -95,12 +105,17 @@ def fa_M_step(mu_q, Σ_q, x):
     return A, Ψ
 
 
-def Q(mu_q, Σ_q, size=None):
-    return np.random.multivariate_normal(mu_q, Σ_q, size=size)
+def Q(µ_q, Σ_q, size=None):
+    return np.random.multivariate_normal(µ_q, Σ_q, size=size)
 
 # def epsilon_test(x, A, Ψ, mu_q, Σ_q):
 
 def epsilon_test_classify(f_plus, f_minus):
+    """
+    :param f_plus: (float) f(x + ε) - f(x)
+    :param f_minus: (float) f(x - ε) - f(x)
+    :return: 0,1,2,3 for different cases
+    """
     # U bend
     if f_plus * f_minus > 0:
         if f_plus > 0:
@@ -115,9 +130,17 @@ def epsilon_test_classify(f_plus, f_minus):
         return 4 # unknown! At least one is 0.
 
 def epsilon_test(my_var, f, eps=1e-3, indices=None):
+    """Performs epsilon test on parameters of my_var wrt func f.
+    :param my_var: (np.ndarray) our parameter for f, which we want to gradient test - is it a local optimum or not?
+    :param f: f(my_var + eps) is the function we're interested in
+    :param eps: (float) amount to perturb my_var by
+    :param indices: Optional[List[Tuple]] optionally specify which indices of my_var we wish to test. Other indices will
+        be -1
+    :return:
+    """
     shape = my_var.shape
     output = np.zeros(shape)
-    delta_var = np.zeros(shape)
+    delta_var = -np.ones(shape)
     if indices is None:
         it = np.nditer(my_var, flags=['multi_index'])
         iterator = tqdm((it.multi_index for _ in it),
@@ -126,20 +149,32 @@ def epsilon_test(my_var, f, eps=1e-3, indices=None):
         iterator = tqdm(indices)
     for index in iterator:
         delta_var[index] += eps
-        f_plus, f_minus, classification = epsilon_test_plus_minus(f, my_var, delta_var)
+        f_plus, f_minus, classification = epsilon_test_plus_minus_perturbation(f, my_var, delta_var)
         delta_var[index] = 0.
         output[index] = classification
 
     return output
 
-def epsilon_test_plus_minus(f, my_var, delta_var):
+def epsilon_test_plus_minus_perturbation(f, my_var, delta_var):
+    """
+    :param f: func to test displacement about
+    :param my_var: base point
+    :param delta_var: perturbation
+    :return:
+    """
     f_plus = f(my_var + delta_var)
     f_minus = f(my_var - delta_var)
     return f_plus, f_minus, epsilon_test_classify(f_plus, f_minus)
 
-def sample_z_from_q(mu_q, Σ_q, n_samples=100):
+def sample_z_from_q(µ_q, Σ_q, n_samples=100):
+    """
+    :param µ_q: (n,k)
+    :param Σ_q: (k,k)
+    :param n_samples: number of samples to sample
+    :return:
+    """
     # list of distributions q_i(z_i)
-    Q = [multivariate_normal(mu, Σ_q) for mu in mu_q]  # (n,)
+    Q = [multivariate_normal(µ, Σ_q) for µ in µ_q]  # (n,)
     k = Σ_q.shape[0]
 
     # (n, n_samples, k)
@@ -147,40 +182,42 @@ def sample_z_from_q(mu_q, Σ_q, n_samples=100):
     return sampled_z
 
 def fa_ELBO_delta_estimate(x, A, Ψ, sampled_z):
+    """
+    :param x: (n,d)
+    :param A: (d,k)
+    :param Ψ: (d,d)  NB this should be diagonal as we use that to save computation.
+    :param sampled_z: (n, n_samples, k)
+    :return: (float) simplified estimate of ELBO(Q(~sampled_z); A, Ψ) (much crud thrown out of formula)
+    """
+    # The only part of ELBO formula influenced by A, Ψ is the log p(x|z; A,Ψ) = (-1/2) [log |Ψ| + x^T Ψ^{-1} x]
+
     n_samples = sampled_z.shape[1]
     n = x.shape[0]
 
     tiled_x = np.expand_dims(x, axis=-2)  # (n,d) -> (n,1,d)
     tiled_x = np.tile(tiled_x, (1, n_samples, 1))  # (n,1,d) -> (n, n_samples, d)
 
-    joint_samples = np.concatenate([sampled_z, tiled_x], axis=-1)  # (n, n_samples, k+d)
-
-    cond = (tiled_x - sampled_z @ A.T)
+    cond = (tiled_x - sampled_z @ A.T)  # (n, n_samples, d) this is the x|z conditional dist, ~ N(0, Ψ)
+    a1, a2 = np.expand_dims(cond, axis=2), np.expand_dims(cond, axis=3)  # (n, n_samples, 1, d), (n, n_samples, d, 1)
     out = (
         + np.log(np.linalg.det(Ψ))
-        + np.squeeze(np.expand_dims(cond, axis=2) @ np.linalg.inv(Ψ) @ np.expand_dims(cond, axis=3))
-    ).sum() / (- n * n_samples)
-    return out
-
-def fa_ELBO_delta_estimate_better(x, A, Ψ, sampled_z):
-    n_samples = sampled_z.shape[1]
-    n = x.shape[0]
-
-    tiled_x = np.expand_dims(x, axis=-2)  # (n,d) -> (n,1,d)
-    tiled_x = np.tile(tiled_x, (1, n_samples, 1))  # (n,1,d) -> (n, n_samples, d)
-
-    joint_samples = np.concatenate([sampled_z, tiled_x], axis=-1)  # (n, n_samples, k+d)
-
-    cond = (tiled_x - sampled_z @ A.T)
-    a1,a2 = np.expand_dims(cond, axis=2), np.expand_dims(cond, axis=3)
-    out = (
-        + np.log(np.linalg.det(Ψ))
-        + np.squeeze((a1 * np.diag(np.linalg.inv(Ψ))) @ a2)
-    ).sum() / (- n * n_samples)
+          # ((n, n_samples, 1, d) * (d,) (diagonal)) @ (n, n_samples, d, 1) = (n, n_samples, 1, 1)
+        + np.squeeze((a1 * np.diag(np.linalg.inv(Ψ))) @ a2)  # squeezed, then summed over all axes
+    ).sum() / (- 2 * n * n_samples)
+    # normalizing to n and n_samples is good. We may as well also keep in the factor of 2
     return out
 
 def fa_ELBO_estimate(x, A, Ψ, mu_q, Σ_q, n_samples=100):
-    """Estimate ELBO by randomly sampling over z distribution"""
+    """Estimate ELBO by randomly sampling over z distribution
+    :param x: (n,d)
+    :param A: (d,k)
+    :param Ψ: (d,d)
+    :param mu_q: (n,k)
+    :param Σ_q: (k,k)
+    :param n_samples: (int) for each x_i, how many times to sample from z_i ~ N(µ_q_i, Σ_q) in order to approximate
+        E_{z_i ~ Q_i}
+    :return: an estimate of ELBO(Q; A,Ψ) = Sum_{i=1}^n E_{z_i ~ Q_i}[ log ( p(x_i, z_i; A,Ψ) / Q_i(z_i) ) ]
+    """
     # We generate the base multivariate normal distribution of (z,x)
     k, d = mu_q.shape[1], x.shape[1]
     joint_mean = np.zeros(k+d)

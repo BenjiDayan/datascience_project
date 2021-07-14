@@ -1,19 +1,18 @@
 import numpy as np
 import os
-#from matplotlib import pyplot as plt
-#from factor_analyzer import FactorAnalyzer, Rotator
+from matplotlib import pyplot as plt
+from factor_analyzer import FactorAnalyzer, Rotator
 import pathlib
 import re
 import pandas as pd
 from ddata.parsing import ii2
 import sys
 sys.path.append('src')
-from ddata.em import epsilon_test, fa_ELBO_delta_estimate, fa_ELBO_delta_estimate_better, \
-    fa_E_step, x, sample_z_from_q
+from ddata.em import epsilon_test, fa_ELBO_delta_estimate, fa_E_step, x, sample_z_from_q
 from functools import partial
 
 outdir = pathlib.Path('outputs')
-elbos = np.load(outdir / 'elbo.npy')
+elbos = np.load(outdir / 'elbo.npy', allow_pickle=True)
 
 def get_fns(path, regex='iter(\d*)_E.npy'):
     fns = os.listdir(path)
@@ -31,11 +30,12 @@ As_M = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A', rege
 # np.save(outdir / 'A' / 'all', As)
 # np.save(outdir / 'Psi' / 'all', Ψs)
 
-def analyse():
-    # plt.plot(elbos)
+def analyse(elbos):
+    fig = plt.figure()
+    plt.plot([x[0] for x in elbos])
+    plt.plot([x[1] for x in elbos if len(x) == 2])
     i = np.argmax(elbos)
-    A = As[i]
-    Ψ = Ψs[i]
+    return i
 
 def compare():
     x = ii2.drop(labels='subject', axis=1).to_numpy()
@@ -58,20 +58,27 @@ def compare():
     factors = factors[['question'] + [f'fa_obli{i}' for i in [0,1,2]] + [f'fa_FA{i}' for i in [2,1,0]]]
     # We find this ordering makes the factors seem comparable (though maybe some scaling?)
 
+def do_test_on_A(A, Ψ, n_samples):
+    """epsilon tests wrt A's params and the diagonal bits of Ψ's params."""
+    mu_q, Σ_q = fa_E_step(x, A, Ψ)
+    sampled_z = sample_z_from_q(mu_q, Σ_q, n_samples=n_samples)
+    elbo = fa_ELBO_delta_estimate(x, A, Ψ, sampled_z)
+    f1 = lambda A: fa_ELBO_delta_estimate(x, A, Ψ, sampled_z) - elbo
+    out1 = epsilon_test(A, f1)
+    f2 = lambda Ψ: fa_ELBO_delta_estimate(x, A, Ψ, sampled_z) - elbo
+    indices = [(i,i) for i in range(Ψ.shape[0])]
+    out2 = epsilon_test(Ψ, f2, indices=indices)
+    return out1, out2
 
-A, Ψ = As_M[10], Ψs_M[10]
-if __name__ == '__main__':
-    def do_test_on_A(A, Ψ):
-        """epsilon tests wrt A's params."""
-        mu_q, Σ_q = fa_E_step(x, A, Ψ)
-        sampled_z = sample_z_from_q(mu_q, Σ_q, n_samples=n_samples)
-        elbo = fa_ELBO_delta_estimate_better(x, A, Ψ, sampled_z)
-        f1 = lambda A: fa_ELBO_delta_estimate_better(x, A, Ψ, sampled_z) - elbo
-        out1 = epsilon_test(A, f1)
-        f2 = lambda Ψ: fa_ELBO_delta_estimate_better(x, A, Ψ, sampled_z) - elbo
-        indices = [(i,i) for i in range(Ψ.shape[0])]
-        out2 = epsilon_test(Ψ, f2, indices=indices)
-        return out1, out2
-    outputs = []
-    outputs.append(test(As_E[10], Ψs_E[10], 15))
-    outputs.append(test(As_M[10], Ψs_M[10], 15))
+A1, Ψ1 = As_M[3], Ψs_M[3]
+A2, Ψ2 = As_M[11], Ψs_M[11]
+
+A, Ψ = A1, Ψ1
+n_samples=15
+mu_q, Σ_q = fa_E_step(x, A, Ψ)
+sampled_z = sample_z_from_q(mu_q, Σ_q, n_samples=n_samples)
+elbo = fa_ELBO_delta_estimate(x, A, Ψ, sampled_z)
+# if __name__ == '__main__':
+#     outputs = []
+#     outputs.append(do_test_on_A(As_E[10], Ψs_E[10], 15))
+#     outputs.append(do_test_on_A(As_M[10], Ψs_M[10], 15))
