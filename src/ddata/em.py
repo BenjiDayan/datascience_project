@@ -306,13 +306,16 @@ def main(x, outs_dir=None):
     k = 3
     d = x.shape[1]
     A = np.random.rand(d, k)
-
     Ψ = np.zeros((d,d))
     np.fill_diagonal(Ψ, np.random.random(d))
+
+    from analysis import As_M, Ψs_M
+    A, Ψ = As_M[-1], Ψs_M[-1]
+
 
     run_fa_em(x, A, Ψ, max_iter=100, outs_dir=outs_dir)
 
 x = ii2.drop(labels='subject', axis=1).to_numpy()
 if __name__ == '__main__':
     np.random.seed(42)
-    main(x, outs_dir=pathlib.Path('outputs'))  # drop the subj column
+    main(x, outs_dir=pathlib.Path('outputs_continued'))  # drop the subj column

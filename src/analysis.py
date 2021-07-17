@@ -11,7 +11,7 @@ sys.path.append('src')
 from ddata.em import epsilon_test, fa_ELBO_delta_estimate, fa_E_step, x, sample_z_from_q
 from functools import partial
 
-outdir = pathlib.Path('outputs')
+outdir = pathlib.Path('outputs_continued')
 elbos = np.load(outdir / 'elbo.npy', allow_pickle=True)
 
 def get_fns(path, regex='iter(\d*)_E.npy'):
@@ -27,6 +27,8 @@ As_M = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A', rege
 Ψs_M = np.array([np.load(outdir / 'Psi' / fn) for fn in get_fns(outdir / 'Psi', regex='iter('
                                                                                       '\d*)_M.npy')])
 
+A, Ψ = As_M[-1], Ψs_M[-1]
+
 # np.save(outdir / 'A' / 'all', As)
 # np.save(outdir / 'Psi' / 'all', Ψs)
 
@@ -37,7 +39,7 @@ def analyse(elbos):
     i = np.argmax(elbos)
     return i
 
-def compare():
+def compare(A, Ψ):
     x = ii2.drop(labels='subject', axis=1).to_numpy()
     # set([x[:x.index('_')] for x in ii2.columns[1:]])
     questions = {'STAI', 'AES', 'SDS', 'OCI', 'SCZ', 'BIS', 'AUDIT', 'LSAS', 'EAT'}
@@ -49,6 +51,8 @@ def compare():
     print('rotating our factor loadings')
     rotator = Rotator(method='oblimin')
     A_oblimin = rotator.fit_transform(A)
+
+    return fa, A_oblimin
 
     k=3
     stuff = {f'fa_obli{i}': A_oblimin[:, i] for i in range(k)}
@@ -70,14 +74,21 @@ def do_test_on_A(A, Ψ, n_samples):
     out2 = epsilon_test(Ψ, f2, indices=indices)
     return out1, out2
 
-A1, Ψ1 = As_M[3], Ψs_M[3]
-A2, Ψ2 = As_M[11], Ψs_M[11]
+def shift_outputs(source_folder, sink_folder):
+    regex = 'iter(\d*)_M.npy'
+    A_fns = get_fns(sink_folder / 'A', regex=regex)
 
-A, Ψ = A1, Ψ1
-n_samples=15
-mu_q, Σ_q = fa_E_step(x, A, Ψ)
-sampled_z = sample_z_from_q(mu_q, Σ_q, n_samples=n_samples)
-elbo = fa_ELBO_delta_estimate(x, A, Ψ, sampled_z)
+    i = re.findall(regex, A_fns[-1])[0]
+
+
+# A1, Ψ1 = As_M[3], Ψs_M[3]
+# A2, Ψ2 = As_M[11], Ψs_M[11]
+#
+# A, Ψ = A1, Ψ1
+# n_samples=15
+# mu_q, Σ_q = fa_E_step(x, A, Ψ)
+# sampled_z = sample_z_from_q(mu_q, Σ_q, n_samples=n_samples)
+# elbo = fa_ELBO_delta_estimate(x, A, Ψ, sampled_z)
 # if __name__ == '__main__':
 #     outputs = []
 #     outputs.append(do_test_on_A(As_E[10], Ψs_E[10], 15))
