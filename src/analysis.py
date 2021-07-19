@@ -11,8 +11,6 @@ sys.path.append('src')
 from ddata.em import epsilon_test, fa_ELBO_delta_estimate, fa_E_step, x, sample_z_from_q
 from functools import partial
 
-outdir = pathlib.Path('outputs_continued')
-elbos = np.load(outdir / 'elbo.npy', allow_pickle=True)
 
 def get_fns(path, regex='iter(\d*)_E.npy'):
     fns = os.listdir(path)
@@ -20,14 +18,33 @@ def get_fns(path, regex='iter(\d*)_E.npy'):
     fns.sort(key=lambda x: int(re.findall(regex, x)[0]))
     return fns
 
-As_E = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A')])
-Ψs_E = np.array([np.load(outdir / 'Psi' / fn) for fn in get_fns(outdir / 'Psi')])
-As_M = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A', regex='iter('
-                                                                                  '\d*)_M.npy')])
-Ψs_M = np.array([np.load(outdir / 'Psi' / fn) for fn in get_fns(outdir / 'Psi', regex='iter('
+def extract_from_dir(outdir):
+    As_E = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A')])
+    Ψs_E = np.array([np.load(outdir / 'Psi' / fn) for fn in get_fns(outdir / 'Psi')])
+    As_M = np.array([np.load(outdir / 'A' / fn) for fn in get_fns(outdir / 'A', regex='iter('
                                                                                       '\d*)_M.npy')])
+    Ψs_M = np.array([np.load(outdir / 'Psi' / fn) for fn in get_fns(outdir / 'Psi', regex='iter('
+                                                                                          '\d*)_M.npy')])
+    elbos = np.load(outdir / 'elbo.npy', allow_pickle=True)
+    A_shape, Ψ_shape = As_E.shape[1:], Ψs_E.shape[1:]
+    As, Ψs = np.array(list(zip(As_E, As_M))).reshape(-1, *A_shape), np.array(list(zip(Ψs_E, Ψs_M))).reshape(-1, *Ψ_shape)
 
-A, Ψ = As_M[-1], Ψs_M[-1]
+    return elbos, As, Ψs
+
+outdir1 = pathlib.Path('outputs')
+outdir2 = pathlib.Path('outputs_continued')
+zipped = []
+zipped.append(extract_from_dir(outdir1))
+zipped.append(extract_from_dir(outdir2))
+zipped = zip(*zipped)
+elbos, As, Ψs = [np.concatenate([arr1, arr2]) for arr1, arr2 in zipped]
+
+A, Ψ = As[-1], Ψs[-1]
+weights = pd.read_csv('osfstorage-archive/Experiment 2/weights.csv')
+weights = weights.iloc[:, 1:].values
+
+# elbos, As, Ψs = extract_from_dir()
+# A, Ψ = As[-1], Ψs[-1]
 
 # np.save(outdir / 'A' / 'all', As)
 # np.save(outdir / 'Psi' / 'all', Ψs)
