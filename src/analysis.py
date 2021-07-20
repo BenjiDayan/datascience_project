@@ -31,13 +31,14 @@ def extract_from_dir(outdir):
 
     return elbos, As, Ψs
 
-outdir1 = pathlib.Path('outputs')
-outdir2 = pathlib.Path('outputs_continued')
-zipped = []
-zipped.append(extract_from_dir(outdir1))
-zipped.append(extract_from_dir(outdir2))
+outdirs = [
+    pathlib.Path('outputs'),
+    pathlib.Path('outputs_continued'),
+    pathlib.Path('outputs_continued2'),
+]
+zipped = list(map(extract_from_dir, outdirs))
 zipped = zip(*zipped)
-elbos, As, Ψs = [np.concatenate([arr1, arr2]) for arr1, arr2 in zipped]
+elbos, As, Ψs = [np.concatenate(arr_list) for arr_list in zipped]
 
 A, Ψ = As[-1], Ψs[-1]
 weights = pd.read_csv('osfstorage-archive/Experiment 2/weights.csv')

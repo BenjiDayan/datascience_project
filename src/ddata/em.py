@@ -312,9 +312,9 @@ def main(x, outs_dir=None):
     from analysis import As, Ψs
     A, Ψ = As[-1], Ψs[-1]
 
-    run_fa_em(x, A, Ψ, max_iter=100, outs_dir=outs_dir)
+    run_fa_em(x, A, Ψ, max_iter=1000, conv_eps=1e-8, outs_dir=outs_dir)
 
 x = ii2.drop(labels='subject', axis=1).to_numpy()
 if __name__ == '__main__':
     np.random.seed(42)
-    main(x, outs_dir=pathlib.Path('outputs_continued2'))  # drop the subj column
+    main(x, outs_dir=pathlib.Path('outputs_continued3'))  # drop the subj column
