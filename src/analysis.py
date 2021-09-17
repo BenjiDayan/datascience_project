@@ -31,19 +31,6 @@ def extract_from_dir(outdir):
 
     return elbos, As, Ψs
 
-outdirs = [
-    pathlib.Path('outputs'),
-    pathlib.Path('outputs_continued'),
-    pathlib.Path('outputs_continued2'),
-]
-zipped = list(map(extract_from_dir, outdirs))
-zipped = zip(*zipped)
-elbos, As, Ψs = [np.concatenate(arr_list) for arr_list in zipped]
-
-A, Ψ = As[-1], Ψs[-1]
-weights = pd.read_csv('osfstorage-archive/Experiment 2/weights.csv')
-weights = weights.iloc[:, 1:].values
-
 # elbos, As, Ψs = extract_from_dir()
 # A, Ψ = As[-1], Ψs[-1]
 
@@ -58,6 +45,7 @@ def analyse(elbos):
     return i
 
 def compare(A, Ψ):
+    # raw input survey data
     x = ii2.drop(labels='subject', axis=1).to_numpy()
     # set([x[:x.index('_')] for x in ii2.columns[1:]])
     questions = {'STAI', 'AES', 'SDS', 'OCI', 'SCZ', 'BIS', 'AUDIT', 'LSAS', 'EAT'}
@@ -111,3 +99,69 @@ def shift_outputs(source_folder, sink_folder):
 #     outputs = []
 #     outputs.append(do_test_on_A(As_E[10], Ψs_E[10], 15))
 #     outputs.append(do_test_on_A(As_M[10], Ψs_M[10], 15))
+
+
+outdirs = [
+    pathlib.Path('outputs'),
+    pathlib.Path('outputs_continued'),
+    pathlib.Path('outputs_continued2'),
+    pathlib.Path('outputs_continued3')
+]
+zipped = list(map(extract_from_dir, outdirs))
+zipped = zip(*zipped)
+elbos, As, Ψs = [np.concatenate(arr_list) for arr_list in zipped]
+
+def multi_norms(matrices, names):
+    norms = [[np.linalg.norm(mat1 - mat2) for mat2 in matrices] for mat1 in matrices]
+    output = pd.DataFrame(data=[{name: norm for norm, name in zip(row, names)} for row in norms], index=names)
+    return output
+
+if __name__ == '__main__':
+    # These are our computed factor loadings
+    A, Ψ = As[-1], Ψs[-1]
+
+    # These are the studies factor loadings
+    weights = pd.read_csv('osfstorage-archive/Experiment 2/weights.csv')
+    A_study = weights.iloc[:, 1:].values
+
+    # raw input survey data
+    x = ii2.drop(labels='subject', axis=1).to_numpy()
+    # set([x[:x.index('_')] for x in ii2.columns[1:]])
+    # SCZ: schizotyy
+    questions = {'STAI', 'AES', 'SDS', 'OCI', 'SCZ', 'BIS', 'AUDIT', 'LSAS', 'EAT'}
+    questions2 = {'AUDIT': 'alcohol use disorders identification test',
+                  'STAI': 'state trait anxiety inventory',
+                  'OCI': 'obsessive compulsive inventory',
+                  'EAT': 'eating disorder',
+                  'SCZ': 'schizotypy',
+                  'SDS': 'depression',
+                  'LSAS': 'Liebowitz social anxiety scale',
+                  'AES': 'apathy evaluation scale',
+                  'BIS': 'barrat impulsiveness scale'}
+    question_type = [x.split('_')[0] for x in weights.iloc[:, 0]]
+
+    print('fitting generic factor analyser')
+    fa = FactorAnalyzer(rotation=None)
+    fa.fit(x)
+    rotator = Rotator(method='oblimin')
+    A_fa = rotator.fit_transform(fa.loadings_)
+    A_fa_df = pd.DataFrame(A_fa)
+    A_fa_df['question_type'] = question_type
+
+    print('rotating our factor loadings')
+    rotator = Rotator(method='oblimin')
+    A_oblimin = rotator.fit_transform(A)
+    A_oblimin_df = pd.DataFrame(A_oblimin)
+    A_oblimin_df['question_type'] = question_type
+
+    r_fa_oblimin = pd.read_csv('fa_oblimin.csv')
+    r_fact_oblimin = pd.read_csv('factanal_oblimin.csv')
+    r_fa_oblimin['question_type'] = question_type
+    r_fact_oblimin['question_type'] = question_type
+
+    print(r_fa_oblimin.groupby('question_type').mean())
+    print(r_fact_oblimin.groupby('question_type').mean())
+
+    # IMPORTANT: from Table 2 in the paper it looks like r_fact_oblimin matches the means except the 3rd factor is negated.
+
+    norm_diffs = multi_norms([A_oblimin, A_fa, r_fa_oblimin.iloc[:, :3].values, r_fact_oblimin.iloc[:, :3].values], ['mine', 'python_', 'r_fa', 'r_fact'])
